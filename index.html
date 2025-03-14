@@ -106,11 +106,51 @@
                 font-size: 28px;
             }
         }
+
+        /* 新增样式 */
+        .loss-metrics {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .metric-card {
+            background: white;
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .connection-type {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .connection-btn {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid var(--apple-gray2);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .connection-btn.active {
+            border-color: var(--apple-blue);
+            background: rgba(0,113,227,0.1);
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="control-panel">
+            <!-- 新增电路类型选择 -->
+            <div class="input-group">
+                <label>电路连接方式</label>
+                <div class="connection-type">
+                    <div class="connection-btn" data-type="series" onclick="toggleConnection('series')">串联</div>
+                    <div class="connection-btn" data-type="parallel" onclick="toggleConnection('parallel')">并联</div>
+                </div>
+            </div>
+
             <div class="input-group">
                 <div class="section-title">光伏组件</div>
                 <label>品牌选择</label>
@@ -159,6 +199,18 @@
         <div class="result-panel">
             <div class="metric-value" id="powerOutput">0.00 kWh/天</div>
           
+            <!-- 新增损耗数值显示 -->
+            <div class="loss-metrics">
+                <div class="metric-card">
+                    <div>控制器损耗</div>
+                    <div id="controllerLossValue">0W</div>
+                </div>
+                <div class="metric-card">
+                    <div>线路损耗</div>
+                    <div id="lineLossValue">0W</div>
+                </div>
+            </div>
+
             <div class="battery-status">
                 <div class="section-title">充电状态</div>
                 <div id="chargeTime">正在获取位置...</div>
@@ -214,6 +266,77 @@
                 return `<option value="${loss}">${controller.name} (${controller.control_method})</option>`;
             }).join('');
         }
+            // 专家建议系统
+            function generateAdvice(data) {
+            const advice = [];
+          
+            // 效率相关建议
+            if(data.efficiency < 0.18) {
+                advice.push({
+                    icon: '🔧',
+                    text: `当前系统效率${(data.efficiency*100).toFixed(1)}%低于行业标准，建议：\n1. 更换高效率组件\n2. 检查温度补偿系统\n3. 优化安装角度`
+                });
+            }
+
+            // 损耗相关建议
+            if(data.totalLoss > 0.25) {
+                advice.push({
+                    icon: '⚠️',
+                    text: `系统损耗高达${(data.totalLoss*100).toFixed(1)}%，建议：\n1. 升级到MPPT控制器\n2. 使用更粗线径（当前${data.cableLength}m）\n3. 缩短线路长度`
+                });
+            }
+
+            // 充电时间建议
+            if(data.chargeDays > 3) {
+                advice.push({
+                    icon: '⏳',
+                    text: `充电时间过长（${data.chargeDays.toFixed(1)}天），建议：\n1. 增加电池容量\n2. 提高日照利用率\n3. 添加备用电源`
+                });
+            }
+
+            // 温度补偿建议
+            if(Math.abs(data.temp - 25) > 15) {
+                advice.push({
+                    icon: '🌡',
+                    text: `环境温度偏离标准值25℃达${Math.abs(data.temp-25)}℃，建议：\n1. 加强散热系统\n2. 选用温度系数更优的组件\n3. 调整安装位置通风`
+                });
+            }
+
+            // 默认建议
+            if(advice.length === 0) {
+                advice.push({
+                    icon: '✅',
+                    text: `系统配置优良，建议：\n1. 定期清洁光伏板\n2. 每月检查接线端子\n3. 监控发电效率变化`
+                });
+            }
+
+            return advice;
+        }
+
+        // 增强版计算函数
+        function calculate() {
+            // 原有计算逻辑...
+
+            // 生成建议数据
+            const adviceData = {
+                efficiency: realEfficiency,
+                totalLoss,
+                cableLength,
+                chargeDays,
+                temp: parseFloat(document.getElementById('temperature').value)
+            };
+
+            // 生成并显示建议
+            const advice = generateAdvice(adviceData);
+            const adviceHTML = advice.map(item => `
+                <div class="advice-item">
+                    <div class="advice-icon">${item.icon}</div>
+                    <div style="white-space: pre-wrap;">${item.text}</div>
+                </div>
+            `).join('');
+            document.getElementById('adviceContainer').innerHTML = adviceHTML;
+        }
+
         // 天气服务
         async function getWeather(lat, lon) {
             try {
@@ -282,14 +405,29 @@
             });
         }
 
-        function generateAdvice(data) {
-            const advice = [];
-            // 保持原有专家建议逻辑
-            return advice;
+        // 新增电路类型切换
+        function toggleConnection(type) {
+            document.querySelectorAll('.connection-btn').forEach(btn => 
+                btn.classList.remove('active'));
+            document.querySelector(`[data-type="${type}"]`).classList.add('active');
+            calculate();
         }
 
-        function calculate() {
-            // 保持原有计算逻辑
+        // 增强版损耗计算
+        function calculateLineLoss() {
+            const connectionType = document.querySelector('.connection-btn.active').dataset.type;
+            const voltage = 24; // 假设系统电压24V
+            const current = document.getElementById('current').value || 10; // 示例电流值
+
+            // 线路参数
+            const cableLength = parseFloat(document.getElementById('cableLength').value);
+            const resistance = (cableLength * 0.0175) / (2.5 * 1000); // 2.5mm²铜线电阻计算
+
+            if(connectionType === 'series') {
+                return 3 * current * current * resistance; // 串联损耗公式
+            } else {
+                return current * current * resistance / 3; // 并联损耗公式
+            }
         }
 
         // 核心计算逻辑
@@ -334,6 +472,10 @@
                 realEfficiency * (i+1) * irradiance * sunHours / 1000 * (1 - totalLoss)
             );
             powerChart.update();
+
+            // 更新损耗数值显示
+            document.getElementById('controllerLossValue').textContent = `${(controllerLoss * 100).toFixed(1)}W`;
+            document.getElementById('lineLossValue').textContent = `${(cableLoss * 100).toFixed(1)}W`;
         }
 
         // 初始化
@@ -343,6 +485,7 @@
             getLocation();
             document.querySelectorAll('input, select').forEach(el => 
                 el.addEventListener('input', calculate));
+            toggleConnection('series');
         };
     </script>
 </body>
